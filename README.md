@@ -2,7 +2,7 @@
 I saw an air force recuriter use what looked like a debit card to log into his computer once. I now carry a T1000e with me so why not use it as a way to unlock my PC? I use Linux Mint (Cinnamon) desktop - this will work in Linux Mint 22.1 but might not for other versions or distros so no promises. Your password continues to work normally at all times, this just adds another way to unlock/lock.
 
 ## Configuration
-Edit `usb-unlock.sh` to change `IDLE_LOCK_DELAY` to whatever you want. Seconds before idle lock kicks in when device is NOT connected (default: 900 = 15 minutes)
+Edit `usb-unlock.sh` to change `IDLE_LOCK_DELAY` to whatever you want. Seconds before idle lock kicks in when device is NOT connected (default: 900 = 15 minutes) otherwise it stays unlocked forever when connected
 
 Edit `99-usb-unlock.rules` to change the device. Plug in "whatever" you are wanting and run ```lsusb``` look for your device, in my case its `Bus 001 Device 023: ID 239a:8029 Adafruit T1000-E-BOOT`
 Update ```ATTR{idVendor}=="239a", ATTR{idProduct}=="8029"``` both plugged in and removed lines with your devices ID xxxx:xxxx
