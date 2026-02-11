@@ -34,3 +34,7 @@ sudo rm /etc/udev/rules.d/99-usb-unlock.rules
 sudo udevadm control --reload-rules
 ```
 Your screensaver and idle lock settings will stay at whatever they were in when you uninstall. IE; If the device was connected you may want to manually re-enable idle lock in your system settings
+
+## Known Issues
+
+Updating the T1000e puts it in DFU mode making it visable as a mass storage device. This makes it show up as a diffrent device thus locking your computer.
