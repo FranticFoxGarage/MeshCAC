@@ -1,5 +1,5 @@
 # MeshCAC
-I saw an air force recuriter use what looked like a debit card to log into his computer once. I now carry a T100e with me so why not use it as a way to unlock my PC? I use Linux Mint (Cinnamon) desktop - this will work in Linux Mint 22.1 but might not for other versions or distros so no promises. Your password continues to work normally at all times, this just adds another way to unlock/lock.
+I saw an air force recuriter use what looked like a debit card to log into his computer once. I now carry a T1000e with me so why not use it as a way to unlock my PC? I use Linux Mint (Cinnamon) desktop - this will work in Linux Mint 22.1 but might not for other versions or distros so no promises. Your password continues to work normally at all times, this just adds another way to unlock/lock.
 
 ## Configuration
 Edit `usb-unlock.sh` to change `IDLE_LOCK_DELAY` to whatever you want. Seconds before idle lock kicks in when device is NOT connected (default: 900 = 15 minutes)
