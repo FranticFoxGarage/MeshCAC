@@ -1,6 +1,8 @@
 # MeshCAC
 
-I saw an air force recuriter use what looked like a debit card to log into his computer once. I now carry a T1000e with me so why not use it as a way to unlock my PC? I use Linux Mint (Cinnamon) desktop - this will work in Linux Mint 22.1 but might not for other versions or distros so no promises. Your password continues to work normally at all times, this just adds another way to unlock/lock.
+I saw an air force recuriter use what looked like a debit card to log into his computer once. I now carry a T1000e with me so why not use it as a way to unlock my PC? I use Linux Mint (Cinnamon) desktop - this will work in Linux Mint 22.1 but might not for other versions or distros so no promises. Your password continues to work normally at all times, this just adds another way to unlock/lock. 
+I also added a HomeAssistant option you just need to provide a long access token
+Profile (bottom left, user icon)> Security> Long-Lived Access Tokens> Create Token (bottom of the page).
 
 ## Install
 
@@ -38,6 +40,7 @@ sudo udevadm control --reload-rules
 systemctl --user disable --now meshcac-ha-monitor.service
 rm ~/.config/systemd/user/meshcac-ha-monitor.service
 ```
+Or just use the uninstall option in installer
 
 Your screensaver and idle lock settings will stay at whatever they were in when you uninstall. IE; If the device was connected you may want to manually re-enable idle lock in your system settings
 
