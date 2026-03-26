@@ -1,8 +1,0 @@
-# USB Unlock Key - Adafruit T1000-E
-# Install to: /etc/udev/rules.d/99-usb-unlock.rules
-
-# Device plugged in
-ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="239a", ATTR{idProduct}=="8029", RUN+="/usr/local/bin/usb-unlock.sh connect"
-
-# Device removed
-ACTION=="remove", SUBSYSTEM=="usb", ENV{ID_VENDOR_ID}=="239a", ENV{ID_MODEL_ID}=="8029", RUN+="/usr/local/bin/usb-unlock.sh disconnect"
