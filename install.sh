@@ -103,6 +103,10 @@ if $EXISTING_INSTALL; then
                     su - "$UNINSTALL_USER" -c "gsettings set org.gnome.desktop.screensaver lock-enabled true" 2>/dev/null || true
                     su - "$UNINSTALL_USER" -c "gsettings set org.gnome.desktop.session idle-delay uint32 900" 2>/dev/null || true
                     ;;
+                hyprland)
+                    # Restart hypridle if it was killed
+                    XDG_RUNTIME_DIR="/run/user/$UNINSTALL_UID" su - "$UNINSTALL_USER" -c "hypridle &" 2>/dev/null || true
+                    ;;
             esac
 
             echo ""
@@ -160,6 +164,8 @@ elif pgrep -u "$INPUT_USER" -x gnome-shell &>/dev/null; then
     DETECTED_DE="gnome"
 elif pgrep -u "$INPUT_USER" -x plasmashell &>/dev/null; then
     DETECTED_DE="kde"
+elif pgrep -u "$INPUT_USER" -x Hyprland &>/dev/null; then
+    DETECTED_DE="hyprland"
 elif pgrep -u "$INPUT_USER" -x xfce4-session &>/dev/null; then
     DETECTED_DE="xfce"
 else
@@ -180,15 +186,17 @@ if [ -z "$DETECTED_DE" ]; then
     echo "  2) gnome"
     echo "  3) kde"
     echo "  4) xfce"
+    echo "  5) hyprland"
     prompt "Desktop environment [default: $DEFAULT_DE]:"
     read -r DE_CHOICE
     case "$DE_CHOICE" in
-        1|cinnamon) DETECTED_DE="cinnamon" ;;
-        2|gnome)    DETECTED_DE="gnome" ;;
-        3|kde)      DETECTED_DE="kde" ;;
-        4|xfce)     DETECTED_DE="xfce" ;;
-        "")         DETECTED_DE="$DEFAULT_DE" ;;
-        *)          error "Invalid choice" ;;
+        1|cinnamon)  DETECTED_DE="cinnamon" ;;
+        2|gnome)     DETECTED_DE="gnome" ;;
+        3|kde)       DETECTED_DE="kde" ;;
+        4|xfce)      DETECTED_DE="xfce" ;;
+        5|hyprland)  DETECTED_DE="hyprland" ;;
+        "")          DETECTED_DE="$DEFAULT_DE" ;;
+        *)           error "Invalid choice" ;;
     esac
 fi
 INPUT_DE="$DETECTED_DE"

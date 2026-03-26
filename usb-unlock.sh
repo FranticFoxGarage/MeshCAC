@@ -21,10 +21,11 @@ log_msg() {
 get_user_env() {
     local process
     case "$DESKTOP_ENV" in
-        cinnamon) process="cinnamon" ;;
-        gnome)    process="gnome-shell" ;;
-        kde)      process="plasmashell" ;;
-        xfce)     process="xfce4-session" ;;
+        cinnamon)  process="cinnamon" ;;
+        gnome)     process="gnome-shell" ;;
+        kde)       process="plasmashell" ;;
+        xfce)      process="xfce4-session" ;;
+        hyprland)  process="Hyprland" ;;
         *)
             log_msg "ERROR: Unknown DESKTOP_ENV '$DESKTOP_ENV'"
             return 1
@@ -103,6 +104,12 @@ do_screensaver_disable() {
             run_as_user "xfconf-query -c xfce4-screensaver -p /saver/enabled -s false"
             run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -s false"
             ;;
+        hyprland)
+            # Kill hypridle to prevent idle locking while device is connected
+            pkill -u "$USERNAME" -x hypridle 2>/dev/null || true
+            # Unlock hyprlock if it's running (SIGUSR1 is hyprlock's unlock signal)
+            pkill -u "$USERNAME" -USR1 hyprlock 2>/dev/null || true
+            ;;
     esac
 }
 
@@ -129,6 +136,12 @@ do_screensaver_enable() {
             run_as_user "xfconf-query -c xfce4-screensaver -p /saver/enabled -s true"
             run_as_user "xfconf-query -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled -s true"
             run_as_user "xfce4-screensaver-command -l"
+            ;;
+        hyprland)
+            # Lock via loginctl (sends DBus lock signal that hyprlock picks up)
+            su "$USERNAME" -c "loginctl lock-session" 2>/dev/null
+            # Restart hypridle so idle locking resumes
+            run_as_user "hypridle &"
             ;;
     esac
 }

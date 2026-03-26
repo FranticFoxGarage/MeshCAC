@@ -33,15 +33,37 @@ send_ha_state() {
 
 get_dbus_signal() {
     case "$DESKTOP_ENV" in
-        cinnamon|xfce) echo "type='signal',interface='org.cinnamon.ScreenSaver',member='ActiveChanged'" ;;
-        gnome)         echo "type='signal',interface='org.gnome.ScreenSaver',member='ActiveChanged'" ;;
-        kde)           echo "type='signal',interface='org.kde.screensaver',member='ActiveChanged'" ;;
+        cinnamon|xfce) echo "session" ;;
+        gnome)         echo "session" ;;
+        kde)           echo "session" ;;
+        hyprland)      echo "system" ;;
         *)
-            logger -t "$LOG_TAG" "HA monitor: unknown DESKTOP_ENV, defaulting to cinnamon signal"
-            echo "type='signal',interface='org.cinnamon.ScreenSaver',member='ActiveChanged'"
+            logger -t "$LOG_TAG" "HA monitor: unknown DESKTOP_ENV, defaulting to session bus"
+            echo "session"
             ;;
     esac
 }
+
+BUS_TYPE=$(get_dbus_signal)
+
+if [ "$BUS_TYPE" = "system" ]; then
+    # Hyprland: watch org.freedesktop.login1 LockedHint on the system bus
+    # No session bus needed - works regardless of whether hyprlock is running
+    logger -t "$LOG_TAG" "HA monitor connected (system bus / LockedHint)"
+    gdbus monitor --system --dest org.freedesktop.login1 2>/dev/null | \
+    while read -r line; do
+        case "$line" in
+            *"'LockedHint': <true>"*)
+                logger -t "$LOG_TAG" "Screen locked - updating HA"
+                send_ha_state "off"
+                ;;
+            *"'LockedHint': <false>"*)
+                logger -t "$LOG_TAG" "Screen unlocked - updating HA"
+                send_ha_state "on"
+                ;;
+        esac
+    done
+else
 
 logger -t "$LOG_TAG" "HA monitor started (DE: $DESKTOP_ENV)"
 
@@ -76,18 +98,28 @@ if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
     exit 1
 fi
 
-logger -t "$LOG_TAG" "HA monitor connected to DBus"
+    # Session bus: watch screensaver ActiveChanged signal
+    get_screensaver_signal() {
+        case "$DESKTOP_ENV" in
+            cinnamon|xfce) echo "type='signal',interface='org.cinnamon.ScreenSaver',member='ActiveChanged'" ;;
+            gnome)         echo "type='signal',interface='org.gnome.ScreenSaver',member='ActiveChanged'" ;;
+            kde)           echo "type='signal',interface='org.kde.screensaver',member='ActiveChanged'" ;;
+        esac
+    }
 
-dbus-monitor --session "$(get_dbus_signal)" 2>/dev/null | \
-while read -r line; do
-    case "$line" in
-        *"boolean true"*)
-            logger -t "$LOG_TAG" "Screen locked - updating HA"
-            send_ha_state "off"
-            ;;
-        *"boolean false"*)
-            logger -t "$LOG_TAG" "Screen unlocked - updating HA"
-            send_ha_state "on"
-            ;;
-    esac
-done
+    logger -t "$LOG_TAG" "HA monitor connected (session bus / screensaver)"
+
+    dbus-monitor --session "$(get_screensaver_signal)" 2>/dev/null | \
+    while read -r line; do
+        case "$line" in
+            *"boolean true"*)
+                logger -t "$LOG_TAG" "Screen locked - updating HA"
+                send_ha_state "off"
+                ;;
+            *"boolean false"*)
+                logger -t "$LOG_TAG" "Screen unlocked - updating HA"
+                send_ha_state "on"
+                ;;
+        esac
+    done
+fi
