@@ -38,8 +38,8 @@ get_user_env() {
         return 1
     fi
 
-    export DBUS_SESSION_BUS_ADDRESS=$(grep -z DBUS_SESSION_BUS_ADDRESS /proc/$pid/environ 2>/dev/null | cut -d= -f2-)
-    export DISPLAY=$(grep -z DISPLAY /proc/$pid/environ 2>/dev/null | cut -d= -f2-)
+    export DBUS_SESSION_BUS_ADDRESS=$(tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep ^DBUS_SESSION_BUS_ADDRESS= | cut -d= -f2-)
+    export DISPLAY=$(tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep ^DISPLAY= | cut -d= -f2-)
 
     if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
         log_msg "ERROR: Could not get DBUS_SESSION_BUS_ADDRESS"
@@ -50,6 +50,27 @@ get_user_env() {
 
 run_as_user() {
     su "$USERNAME" -c "DISPLAY=$DISPLAY DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS $1" 2>/dev/null
+}
+
+send_ha_state() {
+    [ -z "$HA_TOKEN" ] && return 0
+    local state="$1"
+    local resolve_opt=""
+    [ -n "$HA_IP" ] && resolve_opt="--resolve ${HA_HOST}:443:${HA_IP}"
+    local tmpscript
+    tmpscript=$(mktemp /tmp/meshcac-ha.XXXXXX.sh)
+    cat > "$tmpscript" <<EOF
+#!/bin/bash
+if ! /usr/bin/curl -sf $resolve_opt -X POST "https://$HA_HOST/api/states/$HA_ENTITY" \
+  -H "Authorization: Bearer $HA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"state": "$state", "attributes": {"friendly_name": "$HA_FRIENDLY", "device_class": "lock"}}' >/dev/null 2>&1; then
+    logger -t meshcac "ERROR: Failed to update HA state to $state"
+fi
+rm -f "\$0"
+EOF
+    chmod +x "$tmpscript"
+    systemd-run --quiet --no-block /bin/bash "$tmpscript"
 }
 
 ensure_screensaver_daemon() {
@@ -116,6 +137,7 @@ do_unlock() {
     log_msg "Device connected - unlocking"
     get_user_env || return 1
     do_screensaver_disable
+    send_ha_state "on"
     log_msg "Unlocked"
 }
 
@@ -123,6 +145,7 @@ do_lock() {
     log_msg "Device removed - locking"
     get_user_env || return 1
     do_screensaver_enable
+    send_ha_state "off"
     log_msg "Locked"
 }
 
