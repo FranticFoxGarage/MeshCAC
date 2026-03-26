@@ -49,33 +49,21 @@ get_user_env() {
 }
 
 run_as_user() {
-    su - "$USERNAME" -c "DISPLAY=$DISPLAY DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS $1" 2>/dev/null
+    su "$USERNAME" -c "DISPLAY=$DISPLAY DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS $1" 2>/dev/null
 }
 
-send_ha_state() {
-    [ -z "$HA_TOKEN" ] && return 0
-    local state="$1"
-    local resolve_opt=""
-    [ -n "$HA_IP" ] && resolve_opt="--resolve ${HA_HOST}:443:${HA_IP}"
-    local tmpscript
-    tmpscript=$(mktemp /tmp/meshcac-ha.XXXXXX.sh)
-    cat > "$tmpscript" <<EOF
-#!/bin/bash
-if ! /usr/bin/curl -sf $resolve_opt -X POST "https://$HA_HOST/api/states/$HA_ENTITY" \
-  -H "Authorization: Bearer $HA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"state": "$state", "attributes": {"friendly_name": "$HA_FRIENDLY", "device_class": "lock"}}' >/dev/null 2>&1; then
-    logger -t meshcac "ERROR: Failed to update HA state to $state"
-fi
-rm -f "\$0"
-EOF
-    chmod +x "$tmpscript"
-    systemd-run --quiet --no-block /bin/bash "$tmpscript"
+ensure_screensaver_daemon() {
+    if ! pgrep -u "$USERNAME" -f cinnamon-screensaver &>/dev/null; then
+        log_msg "cinnamon-screensaver not running - starting it"
+        run_as_user "cinnamon-screensaver &"
+        sleep 1
+    fi
 }
 
 do_screensaver_disable() {
     case "$DESKTOP_ENV" in
         cinnamon)
+            ensure_screensaver_daemon
             run_as_user "cinnamon-screensaver-command -d"
             run_as_user "dbus-send --session --dest=org.cinnamon.SettingsDaemon.Power --print-reply /org/cinnamon/SettingsDaemon/Power org.freedesktop.DBus.Properties.Set string:'org.cinnamon.SettingsDaemon.Power' string:'IdleActivationEnabled' variant:boolean:false"
             run_as_user "gsettings set org.cinnamon.desktop.screensaver lock-enabled false"
@@ -100,6 +88,7 @@ do_screensaver_disable() {
 do_screensaver_enable() {
     case "$DESKTOP_ENV" in
         cinnamon)
+            ensure_screensaver_daemon
             run_as_user "gsettings set org.cinnamon.desktop.screensaver lock-enabled true"
             run_as_user "gsettings set org.cinnamon.desktop.session idle-delay uint32 $IDLE_LOCK_DELAY"
             run_as_user "dbus-send --session --dest=org.cinnamon.SettingsDaemon.Power --print-reply /org/cinnamon/SettingsDaemon/Power org.freedesktop.DBus.Properties.Set string:'org.cinnamon.SettingsDaemon.Power' string:'IdleActivationEnabled' variant:boolean:true"
