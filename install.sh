@@ -51,14 +51,66 @@ if $EXISTING_INSTALL; then
     echo ""
     echo "  1) Update / reinstall (keep existing config as defaults)"
     echo "  2) Fresh install (overwrite everything)"
-    echo "  3) Abort"
+    echo "  3) Uninstall"
+    echo "  4) Abort"
     echo ""
-    prompt "Choice [1-3]:"
+    prompt "Choice [1-4]:"
     read -r INSTALL_MODE
     case "$INSTALL_MODE" in
         1) info "Updating - existing config values will be used as defaults" ;;
         2) info "Fresh install" ; EXISTING_CONF="" ;;
-        3) echo "Aborted." ; exit 0 ;;
+        3)
+            echo ""
+            warn "This will remove all MeshCAC files and restore idle lock settings."
+            prompt "Are you sure? [y/N]:"
+            read -r CONFIRM_UNINSTALL
+            [[ ! "$CONFIRM_UNINSTALL" =~ ^[Yy] ]] && echo "Aborted." && exit 0
+
+            UNINSTALL_USER="${SUDO_USER:-$(whoami)}"
+            UNINSTALL_UID=$(id -u "$UNINSTALL_USER")
+            UNINSTALL_HOME=$(eval echo ~"$UNINSTALL_USER")
+
+            # Load config before removing it so we can restore screensaver settings
+            UNINSTALL_CONF="$INSTALL_CONF/meshcac.conf"
+            if [ -f "$UNINSTALL_CONF" ]; then
+                source "$UNINSTALL_CONF"
+                UNINSTALL_DE="${DESKTOP_ENV:-cinnamon}"
+            else
+                UNINSTALL_DE="cinnamon"
+            fi
+
+            info "Stopping HA monitor service..."
+            su - "$UNINSTALL_USER" -c "XDG_RUNTIME_DIR=/run/user/$UNINSTALL_UID systemctl --user disable --now meshcac-ha-monitor.service" 2>/dev/null || true
+
+            info "Removing files..."
+            rm -f "$INSTALL_BIN/usb-unlock.sh"
+            rm -f "$INSTALL_BIN/meshcac-ha-monitor.sh"
+            rm -f "$UDEV_RULES"
+            rm -f "$OLD_UDEV_RULES"
+            rm -rf "$INSTALL_CONF"
+            rm -f "$UNINSTALL_HOME/.config/systemd/user/meshcac-ha-monitor.service"
+
+            info "Reloading udev rules..."
+            udevadm control --reload-rules
+
+            info "Restoring screensaver settings..."
+            case "$UNINSTALL_DE" in
+                cinnamon)
+                    su - "$UNINSTALL_USER" -c "gsettings set org.cinnamon.desktop.screensaver lock-enabled true" 2>/dev/null || true
+                    su - "$UNINSTALL_USER" -c "gsettings set org.cinnamon.desktop.session idle-delay uint32 900" 2>/dev/null || true
+                    ;;
+                gnome)
+                    su - "$UNINSTALL_USER" -c "gsettings set org.gnome.desktop.screensaver lock-enabled true" 2>/dev/null || true
+                    su - "$UNINSTALL_USER" -c "gsettings set org.gnome.desktop.session idle-delay uint32 900" 2>/dev/null || true
+                    ;;
+            esac
+
+            echo ""
+            success "MeshCAC uninstalled"
+            echo ""
+            exit 0
+            ;;
+        4) echo "Aborted." ; exit 0 ;;
         *) error "Invalid choice" ;;
     esac
 else
@@ -72,6 +124,19 @@ load_existing_value() {
         grep "^${key}=" "$EXISTING_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"'
     fi
 }
+
+if $EXISTING_INSTALL && [ "$INSTALL_MODE" = "1" ] && [ -n "$EXISTING_CONF" ]; then
+    echo ""
+    echo -e "${BOLD}── Current config ───────────────────────${NC}"
+    echo -e "  User:          $(load_existing_value USERNAME)"
+    echo -e "  Desktop:       $(load_existing_value DESKTOP_ENV)"
+    echo -e "  Device:        $(load_existing_value USB_VENDOR):$(load_existing_value USB_PRODUCT)  serial=$(load_existing_value USB_SERIAL)"
+    echo -e "  Idle delay:    $(load_existing_value IDLE_LOCK_DELAY)s"
+    HA_HOST_EXISTING=$(load_existing_value HA_HOST)
+    HA_ENTITY_EXISTING=$(load_existing_value HA_ENTITY)
+    [ -n "$HA_HOST_EXISTING" ] && echo -e "  HA:            $HA_HOST_EXISTING → $HA_ENTITY_EXISTING"
+    echo ""
+fi
 
 echo ""
 echo -e "${BOLD}── Step 1: Username ─────────────────────${NC}"
@@ -180,7 +245,7 @@ case "$DEVICE_MODE" in
         # Get serial via udevadm using the exact bus/device path
         INPUT_SERIAL=""
         if [ -n "$BUS" ] && [ -n "$DEV" ]; then
-            DEVPATH=$(printf "/dev/bus/usb/%03d/%03d" "$BUS" "$DEV")
+            DEVPATH=$(printf "/dev/bus/usb/%03d/%03d" "$((10#$BUS))" "$((10#$DEV))")
             INPUT_SERIAL=$(udevadm info "$DEVPATH" 2>/dev/null | grep 'ID_SERIAL_SHORT=' | cut -d= -f2)
         fi
 
@@ -244,8 +309,16 @@ success "Device: $INPUT_VENDOR:$INPUT_PRODUCT  serial=${INPUT_SERIAL:-<any>}"
 echo ""
 echo -e "${BOLD}── Step 4: Home Assistant (optional) ────${NC}"
 echo ""
-info "Paste your HA URL or just press Enter to skip"
-prompt "HA URL (e.g. https://hass.home.example.com):"
+
+DEFAULT_HA_HOST=$(load_existing_value "HA_HOST")
+DEFAULT_HA_TOKEN=$(load_existing_value "HA_TOKEN")
+DEFAULT_HA_IP=$(load_existing_value "HA_IP")
+DEFAULT_HA_ENTITY=$(load_existing_value "HA_ENTITY")
+DEFAULT_HA_FRIENDLY=$(load_existing_value "HA_FRIENDLY")
+
+[ -n "$DEFAULT_HA_HOST" ] && info "Current: $DEFAULT_HA_HOST"
+info "Paste your HA URL, press Enter to keep existing, or type 'none' to disable"
+prompt "HA URL [${DEFAULT_HA_HOST:-not set}]:"
 read -r HA_RAW
 
 INPUT_HA_TOKEN=""
@@ -254,7 +327,14 @@ INPUT_HA_IP=""
 INPUT_HA_ENTITY=""
 INPUT_HA_FRIENDLY=""
 
-if [ -n "$HA_RAW" ]; then
+# Keep existing if Enter pressed and existing config present
+if [ -z "$HA_RAW" ] && [ -n "$DEFAULT_HA_HOST" ]; then
+    HA_RAW="https://$DEFAULT_HA_HOST"
+fi
+
+if [ "$HA_RAW" = "none" ]; then
+    info "Disabling Home Assistant"
+elif [ -n "$HA_RAW" ]; then
     # Strip trailing slashes and paths - just need protocol + host
     HA_PROTO=$(echo "$HA_RAW" | grep -oP '^https?')
     HA_HOST_EXTRACTED=$(echo "$HA_RAW" | sed -E 's|^https?://||' | cut -d'/' -f1)
@@ -369,7 +449,8 @@ HA_IP="$INPUT_HA_IP"
 HA_ENTITY="$INPUT_HA_ENTITY"
 HA_FRIENDLY="$INPUT_HA_FRIENDLY"
 EOF
-chmod 600 "$INSTALL_CONF/meshcac.conf"
+chmod 640 "$INSTALL_CONF/meshcac.conf"
+chown root:"$INPUT_USER" "$INSTALL_CONF/meshcac.conf"
 success "Config written to $INSTALL_CONF/meshcac.conf"
 
 # ---- Write udev rules ----
@@ -386,7 +467,7 @@ cat > "$UDEV_RULES" <<EOF
 
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="$INPUT_VENDOR", ATTR{idProduct}=="$INPUT_PRODUCT"${SERIAL_ADD_ATTR}, RUN+="/usr/local/bin/usb-unlock.sh connect"
 
-ACTION=="remove", SUBSYSTEM=="usb", ENV{ID_VENDOR_ID}=="$INPUT_VENDOR", ENV{ID_MODEL_ID}=="$INPUT_PRODUCT"${SERIAL_REMOVE_ENV}, RUN+="/usr/local/bin/usb-unlock.sh disconnect"
+ACTION=="remove", SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="$INPUT_VENDOR", ENV{ID_MODEL_ID}=="$INPUT_PRODUCT"${SERIAL_REMOVE_ENV}, RUN+="/usr/local/bin/usb-unlock.sh disconnect"
 EOF
 success "Udev rules written to $UDEV_RULES"
 

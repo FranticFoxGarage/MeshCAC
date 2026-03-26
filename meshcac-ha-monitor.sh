@@ -45,6 +45,39 @@ get_dbus_signal() {
 
 logger -t "$LOG_TAG" "HA monitor started (DE: $DESKTOP_ENV)"
 
+# Get DBus session from the user's running DE process
+case "$DESKTOP_ENV" in
+    cinnamon) DE_PROC="cinnamon" ;;
+    gnome)    DE_PROC="gnome-shell" ;;
+    kde)      DE_PROC="plasmashell" ;;
+    xfce)     DE_PROC="xfce4-session" ;;
+    *)        DE_PROC="cinnamon" ;;
+esac
+
+# Wait up to 30s for the DE process to be available (handles early service start)
+ELAPSED=0
+while [ $ELAPSED -lt 30 ]; do
+    DE_PID=$(pgrep -u "$USERNAME" -x "$DE_PROC" | head -1)
+    [ -n "$DE_PID" ] && break
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+done
+
+if [ -z "$DE_PID" ]; then
+    logger -t "$LOG_TAG" "ERROR: HA monitor could not find $DE_PROC process, exiting"
+    exit 1
+fi
+
+export DBUS_SESSION_BUS_ADDRESS=$(tr '\0' '\n' < /proc/$DE_PID/environ 2>/dev/null | grep ^DBUS_SESSION_BUS_ADDRESS= | cut -d= -f2-)
+export DISPLAY=$(tr '\0' '\n' < /proc/$DE_PID/environ 2>/dev/null | grep ^DISPLAY= | cut -d= -f2-)
+
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+    logger -t "$LOG_TAG" "ERROR: HA monitor could not get DBUS_SESSION_BUS_ADDRESS, exiting"
+    exit 1
+fi
+
+logger -t "$LOG_TAG" "HA monitor connected to DBus"
+
 dbus-monitor --session "$(get_dbus_signal)" 2>/dev/null | \
 while read -r line; do
     case "$line" in
