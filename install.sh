@@ -169,24 +169,19 @@ case "$DEVICE_MODE" in
 
         success "Detected: $NEW_LINE"
 
-        # Parse vendor:product from lsusb line: "Bus 001 Device 023: ID 239a:8029 ..."
+        # Parse vendor:product and bus/device from lsusb line
+        # Format: "Bus 001 Device 023: ID 239a:8029 ..."
         ID_PART=$(echo "$NEW_LINE" | grep -oP 'ID \K[0-9a-fA-F]{4}:[0-9a-fA-F]{4}')
         INPUT_VENDOR=$(echo "$ID_PART" | cut -d: -f1)
         INPUT_PRODUCT=$(echo "$ID_PART" | cut -d: -f2)
+        BUS=$(echo "$NEW_LINE" | grep -oP 'Bus \K[0-9]+')
+        DEV=$(echo "$NEW_LINE" | grep -oP 'Device \K[0-9]+')
 
-        # Get serial via sysfs
-        SYSFS_PATH=$(find /sys/bus/usb/devices -maxdepth 1 -type l | while read -r dev; do
-            v=$(cat "$dev/idVendor" 2>/dev/null)
-            p=$(cat "$dev/idProduct" 2>/dev/null)
-            if [ "$v" = "$INPUT_VENDOR" ] && [ "$p" = "$INPUT_PRODUCT" ]; then
-                echo "$dev"
-                break
-            fi
-        done | head -1)
-
+        # Get serial via udevadm using the exact bus/device path
         INPUT_SERIAL=""
-        if [ -n "$SYSFS_PATH" ]; then
-            INPUT_SERIAL=$(cat "$SYSFS_PATH/serial" 2>/dev/null)
+        if [ -n "$BUS" ] && [ -n "$DEV" ]; then
+            DEVPATH=$(printf "/dev/bus/usb/%03d/%03d" "$BUS" "$DEV")
+            INPUT_SERIAL=$(udevadm info "$DEVPATH" 2>/dev/null | grep 'ID_SERIAL_SHORT=' | cut -d= -f2)
         fi
 
         if [ -n "$INPUT_SERIAL" ]; then
@@ -438,13 +433,14 @@ EOF
     loginctl enable-linger "$INPUT_USER"
 
     # Enable and start the service
-    if XDG_RUNTIME_DIR="/run/user/$REAL_UID" sudo -u "$INPUT_USER" systemctl --user daemon-reload 2>/dev/null; then
-        XDG_RUNTIME_DIR="/run/user/$REAL_UID" sudo -u "$INPUT_USER" systemctl --user enable --now meshcac-ha-monitor.service 2>/dev/null && \
-            success "HA monitor service enabled and started" || \
-            warn "Could not start service automatically - run manually: systemctl --user enable --now meshcac-ha-monitor.service"
+    if su - "$INPUT_USER" -c "XDG_RUNTIME_DIR=/run/user/$REAL_UID systemctl --user daemon-reload"; then
+        if su - "$INPUT_USER" -c "XDG_RUNTIME_DIR=/run/user/$REAL_UID systemctl --user enable --now meshcac-ha-monitor.service"; then
+            success "HA monitor service enabled and started"
+        else
+            warn "Service enable failed - check: journalctl --user -u meshcac-ha-monitor.service"
+        fi
     else
-        warn "Could not reload systemd - you may need to log out and back in, then run:"
-        warn "  systemctl --user enable --now meshcac-ha-monitor.service"
+        warn "Could not reload systemd user daemon"
     fi
 fi
 
